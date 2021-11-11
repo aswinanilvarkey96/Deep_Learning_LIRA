@@ -133,16 +133,16 @@ LEARNING_RATE = 3e-4
 criterion = nn.MSELoss()   #<-- Your code here.   
 
 BATCH_SIZE = 100
-net = AE(input_shape=BATCH_SIZE)
+net = AE(input_shape=3085)
 # weight_decay is equal to L2 regularization
 optimizer = optim.Adam(net.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
 
 def moving_average(x, w):
     return np.convolve(x, np.ones(w), 'valid') / w
 
-train_dataset = moving_average(data['GM.acc.xyz.y'][8],10)
+train_dataset = moving_average(data['GM.acc.xyz.z'][8],10)
 
-test_dataset = moving_average(data['GM.acc.xyz.y'][1615],10)
+test_dataset = moving_average(data['GM.acc.xyz.z'][1615],10)
 
 num_batches_train = len(train_dataset)/BATCH_SIZE
 
@@ -234,6 +234,9 @@ plt.title('Test')
 # display the epoch training loss
 print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
 #%%
+import random
+import scipy.interpolate as interpolate
+
 def resample(seq, to_length, window_size):
     '''
     Resample a sequence/
@@ -252,11 +255,14 @@ def resample(seq, to_length, window_size):
     '''
     # Downsample if needed
     seq_len = seq.shape[0]
+    seq_choice = []
     if seq_len>to_length:
-        seq = choice(seq, to_length)
+        for i in range(to_length):
+            seq_choice.append(random.choice(seq))
+        seq = np.asarray(seq_choice)
         seq_len = seq.shape[0] #
     # Current
-    d = np.linspace(0, window_size, seq_len)
+    d = np.linspace(0, window_size, num=seq_len)
     f = interpolate.interp1d(d, seq)
     # Generate new points
     d_new = np.random.uniform(low=0, high=d[-1], size=(to_length - seq_len))
@@ -265,6 +271,7 @@ def resample(seq, to_length, window_size):
     # Estimate y at points
     y_resampled = f(d_resampled)
     return d_resampled, y_resampled
+
 def resample_df(df, feats_to_resample, to_lengths_dict = {}, window_size = None):
     input_feats_resampled = []
     # Filter rows with less than 2 points (can't resample those)
@@ -286,12 +293,128 @@ def resample_df(df, feats_to_resample, to_lengths_dict = {}, window_size = None)
     return df,  input_feats_resampled
 
 # Resample length
-                if chunk==0:
-                    for feat in input_feats:
-                        a = df_chunk[feat].apply(lambda seq: seq.shape[0])
-                        l = int(a.quantile(0.90))
-                        to_lengths_dict[feat] = l
-                        print(to_lengths_dict)
-                        #to_lengths_dict = {'GM.acc.xyz.z': 369, 'GM.obd.spd_veh.value':309} # this was used for motorway
-                # Resample chunk df
-                df_chunk, feats_resampled = resample_df(df_chunk, feats_to_resample = input_feats, to_lengths_dict = to_lengths_dict, window_size = window_size)
+# if chunk==0:
+#     for feat in input_feats:
+#         a = df_chunk[feat].apply(lambda seq: seq.shape[0])
+#         l = int(a.quantile(0.90))
+#         to_lengths_dict[feat] = l
+#         print(to_lengths_dict)
+#         #to_lengths_dict = {'GM.acc.xyz.z': 369, 'GM.obd.spd_veh.value':309} # this was used for motorway
+# # Resample chunk df
+# df_chunk, feats_resampled = resample_df(df_chunk, feats_to_resample = input_feats, to_lengths_dict = to_lengths_dict, window_size = window_size)
+
+#%%
+seq = (np.asarray(data['GM.acc.xyz.z'][8]))
+a = (np.asarray(data['GM.acc.xyz.z'][8]))
+to_length = 2500
+window_size = np.max(seq)
+seq_len = seq.shape[0]
+seq_choice = []
+if seq_len>to_length:
+    for i in range(to_length):
+        seq_choice.append(random.choice(seq))
+    seq = np.asarray(seq_choice)
+    seq_len = seq.shape[0] #
+# Current
+d = np.linspace(np.min(a), window_size, num=seq_len)
+f = interpolate.interp1d(d, seq)
+# Generate new points
+d_new = np.random.uniform(low=np.min(a), high=d[-1], size=(to_length - seq_len))
+# Append new to the initial
+d_resampled = sorted(np.concatenate((d, d_new)))
+# Estimate y at points
+y_resampled = f(d_resampled)
+plt.figure()
+plt.plot(d,'r')
+plt.plot(y_resampled,'b')
+plt.plot(np.asarray(data['GM.acc.xyz.z'][8]),'k')
+
+#%%
+from scipy.interpolate import interp1d
+l=list()
+df_clean = pd.DataFrame(columns=["z","v"])
+for d in data["GM.acc.xyz.z"]:
+    l.append(d.shape)
+    
+l = np.array(l)
+print("mean acc length: {}, std: {}, 90 percentile: {}, 90 quantile: {}".format(l.mean(), l.std(), np.percentile(l,90), np.quantile(l,.9)))
+print("Max acc value: {}, Min acc. value: {}".format(l.max(),l.min()))
+plt.plot(l)
+k=0
+l_mean = int(l.mean())
+for i in range(data["GM.acc.xyz.z"].shape[0]):
+    if data["GM.obd.spd_veh.value"].iloc[i].mean()>1:
+        d = data.iloc[i]["GM.acc.xyz.z"]
+        if d.shape < l.mean()+l.std()/2 and d.shape > l.mean()-l.std()/2:
+            if d.shape[0]>l_mean:
+                while d.shape[0]!=l_mean:
+                    d = np.delete(d,np.random.randint(0,d.shape[0]-1))
+                    
+            if d.shape[0] < l_mean:
+                while d.shape[0]!=l_mean:
+                    r = np.random.randint(2,d.shape[0]-2)
+                    m = d[r-2:r+2].mean()
+                    d = np.insert(d,r,m)
+                
+            k+=1
+            df_clean = df_clean.append({"z":d},ignore_index=True)
+l = list()
+for d in df_clean["z"]:
+    l.append(d.shape)
+    
+l = np.array(l)
+print("dropped {} rows".format(data["GM.acc.xyz.z"].shape[0]-k))
+print("mean acc length: {}, std: {}".format(l.mean(), l.std()))
+print("Max acc value: {}, Min acc. value: {}".format(l.max(),l.min()))
+plt.plot(l)
+#data[(data["GM.acc.xyz.z"].shape < np.percentile(l,90)) & (data["GM.acc.xyz.z"].shape > l.mean()-l.std()) ]
+
+#%%
+epochs = 30
+for i in range(5):
+    train_dataset = df_clean['z'][i]
+    plt.figure()
+    iri = np.asarray([])
+    plt.plot(train_dataset)
+    for epoch in range(epochs):
+        loss = 0
+        rec = np.asarray([])
+            # reshape mini-batch data to [N, 784] matrix
+        # load it to the active device
+        batch_features = torch.from_numpy(train_dataset).float()
+            
+        # reset the gradients back to zero
+        # PyTorch accumulates gradients on subsequent backward passes
+        optimizer.zero_grad()
+        
+        # compute reconstructions
+        outputs = net(batch_features)
+        
+        # compute training reconstruction loss
+        train_loss = criterion(outputs, batch_features)
+        
+        # compute accumulated gradients
+        train_loss.backward()
+        
+        # perform parameter update based on current gradients
+        optimizer.step()
+        
+        # add the mini-batch training loss to epoch loss
+        loss += train_loss.item()
+        if epoch == 29:
+            rec = np.concatenate((rec,outputs.detach().numpy()))
+                
+        
+        if epoch == 29: 
+            plt.plot(rec,'r')
+            for i in range(10):
+                iri = np.concatenate((iri,np.ones(250)*data['IRI_sequence'][0][i]))
+        iri = iri*0.01
+        plt.plot(iri,'g')
+        plt.legend(['actual','reconstructed','iri'])
+        plt.title('Train')
+        # compute the epoch training loss
+        loss = loss / len(train_dataset)
+        
+        # display the epoch training loss
+        print("epoch : {}/{}, loss = {:.6f}".format(epoch + 1, epochs, loss))
